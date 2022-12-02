@@ -13,4 +13,4 @@ jobs:
       # Use the output from the `hello` step
       - name: test python
         run: |
-          python ../scripts/test.py
+          python scripts/test.py
