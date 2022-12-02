@@ -2,15 +2,19 @@
 name: 'Hello World'
 description: 'Greet someone and record the time'
 inputs:
-  who-to-greet:  # id of input
-    description: 'Who to greet'
+  canary-percentage:
+    description: 'percentage of traffic to send to canary'
     required: true
-    default: 'World'
+    default: '0'
+  main-percentage:
+    description: 'percentage of traffic to send to canary'
+    required: true
+    default: '100'
 outputs:
-  time: # id of output
+  time:
     description: 'The time we greeted you'
 runs:
   using: 'docker'
   image: 'Dockerfile'
   args:
-    - ${{ inputs.who-to-greet }}
+    - ${{ inputs. }}
