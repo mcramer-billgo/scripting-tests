@@ -1,0 +1,92 @@
+name: Gluon API Canary Traffic Control
+on:
+  push:
+    branches: [ "SRE-943" ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy environment'
+        type: choice
+        required: true
+        options:
+          - dev
+      canary-traffic-percentage:
+        description: 'percentage of traffic to route to canary (0-100)'
+        required: true
+      main-traffic-percentage:
+        description: 'percentage of traffic to route to main (0-100)'
+        required: true
+
+env:
+  GLUON_CORE_DEV_LISTENER_RULE_ARN: "arn:aws:elasticloadbalancing:us-west-2:909614872834:listener-rule/app/gluon-core-dev/c6836afbaee5ca54/0517ee235305f607/36b05ebbf1ea7c71"
+  GLUON_CORE_DEV_CANARY_TARGET_GROUP_ARN: "arn:aws:elasticloadbalancing:us-west-2:909614872834:targetgroup/gluon-core-dev-canary-8443/89f463a7832623ab"
+  GLUON_CORE_DEV_MAIN_TARGET_GROUP_ARN: "arn:aws:elasticloadbalancing:us-west-2:909614872834:targetgroup/gluon-core-dev-8443/0bd7b1a8813eedc2"
+  
+jobs:
+  setup:
+    outputs:
+      environment: ${{ steps.set_env.outputs.environment }}
+      listenerRuleArn: ${{ steps.set_env.outputs.listenerRuleArn }}
+      canaryTargetGroupArn: ${{ steps.set_env.outputs.canaryTargetGroupArn }}
+      mainTargetGroupArn: ${{ steps.set_env.outputs.mainTargetGroupArn }}
+      canaryTrafficPercentage: ${{ steps.set_env.outputs.canaryTrafficPercentage }}
+      mainTrafficPercentage: ${{ steps.set_env.outputs.mainTrafficPercentage }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set environment outputs
+        id: set_env
+        run: |
+          if [[ "${{ github.event_name }}" = "push" ]]; then
+            echo 'environment=dev' >> $GITHUB_OUTPUT
+            echo 'listenerRuleArn=${{ env.GLUON_CORE_DEV_LISTENER_RULE_ARN }}' >> $GITHUB_OUTPUT
+            echo 'canaryTargetGroupArn=${{ env.GLUON_CORE_DEV_CANARY_TARGET_GROUP_ARN }}' >> $GITHUB_OUTPUT
+            echo 'mainTargetGroupArn=${{ env.GLUON_CORE_DEV_MAIN_TARGET_GROUP_ARN }}' >> $GITHUB_OUTPUT
+            echo 'canaryTrafficPercentage=10' >> $GITHUB_OUTPUT
+            echo 'mainTrafficPercentage=92' >> $GITHUB_OUTPUT
+            
+          elif [[ "${{ inputs.environment }}" = "dev" ]]; then
+            echo 'environment=dev' >> $GITHUB_OUTPUT
+            echo 'listenerRuleArn=${{ env.GLUON_CORE_DEV_LISTENER_RULE_ARN }}' >> $GITHUB_OUTPUT
+            echo 'canaryTargetGroupArn=${{ env.GLUON_CORE_DEV_CANARY_TARGET_GROUP_ARN }}' >> $GITHUB_OUTPUT
+            echo 'mainTargetGroupArn=${{ env.GLUON_CORE_DEV_MAIN_TARGET_GROUP_ARN }}' >> $GITHUB_OUTPUT
+          else
+            echo "Unknown environment ${{ inputs.environment }}"
+            exit 1
+          fi
+          echo 'canaryTrafficPercentage=${{ inputs.canary-traffic-percentage }}' >> $GITHUB_OUTPUT
+          echo 'mainTrafficPercentage=${{ inputs.main-traffic-percentage }}' >> $GITHUB_OUTPUT
+          echo '::notice::${{ inputs.environment }}-canary traffic: ${{ inputs.canary-traffic-percentage }}%'
+          echo '::notice::${{ inputs.environment }}-main traffic: ${{ inputs.main-traffic-percentage }}%'
+
+  set-traffic-percentage:
+    environment: "gh-actions-dev"
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS build credentials
+        uses: aws-actions/configure-aws-credentials@v1-node16
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Checkout BillGO GH Actions
+        uses: actions/checkout@v3
+        with:
+          repository: BillHeroInc/gh-actions
+          ref: refs/heads/main
+          token: ${{ secrets.GH_ACTIONS_REPO_TOKEN }}
+          persist-credentials: false
+          path: ./gh-actions/
+      - name: Set Listener Traffic Percentage
+        uses: ./.github/actions/aws-elb-canary-atc
+        with:
+          listener-rule-arn: "${{ needs.setup.outputs.listenerRuleArn }}"
+          canary-target-group-arn: "${{ needs.setup.outputs.canaryTargetGroupArn }}"
+          main-target-group-arn: "${{ needs.setup.outputs.mainTargetGroupArn }}"
+          canary-traffic-percentage: "${{ needs.setup.outputs.canaryTrafficPercentage }}"
+          main-traffic-percentage: "${{ needs.setup.outputs.mainTrafficPercentage }}"
